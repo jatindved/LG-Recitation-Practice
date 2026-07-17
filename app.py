@@ -11,6 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from src.audio_analysis import decode_audio, quality_report
+from src.akshara_match import AksharaIssue, AksharaMatch, compare_aksharas
 from src.data_sources import data_file
 from src.geeta_data import GeetaRepository, Verse
 from src.i18n import LANGUAGES, texts
@@ -573,12 +574,33 @@ def word_highlight_keys(issues: list[WordAudioIssue]) -> set[str]:
     return {word_issue_key(i.shloka, i.charan, _clean_devanagari_token(i.word)) for i in issues if i.confidence != "Low"}
 
 
-def render_highlighted_text(verses: list[Verse], segments: pd.DataFrame, swara_keys: set[str], evidence_keys: dict[str, set[str]], word_keys: set[str] | None = None) -> None:
+def selected_charans(verses: list[Verse], segments: pd.DataFrame) -> list[tuple[int, str, str]]:
+    selected: list[tuple[int, str, str]] = []
+    for verse in verses:
+        rows = segments[
+            (segments["Chapter"] == verse.chapter)
+            & (segments["Shloka"] == verse.shloka)
+            & (segments["Text_Type"].astype(str).str.upper() == "SHLOKA")
+        ].copy()
+        for _, row in rows.sort_values("Charan").iterrows():
+            label = str(row.get("Charan", "")).strip().upper()
+            text = str(row.get("Expected_Text_From_CSV", "") or row.get("Transcript_Devanagari", "")).strip()
+            if label and text:
+                selected.append((verse.shloka, label, text))
+    return selected
+
+
+def akshara_highlight_keys(issues: tuple[AksharaIssue, ...]) -> set[str]:
+    return {issue_key(i.shloka, i.charan, i.expected) for i in issues if i.expected}
+
+
+def render_highlighted_text(verses: list[Verse], segments: pd.DataFrame, swara_keys: set[str], evidence_keys: dict[str, set[str]], word_keys: set[str] | None = None, asr_keys: set[str] | None = None) -> None:
     from src.sanskrit_rules import syllable_rules
 
     st.subheader(lex["highlight_title"])
     word_keys = word_keys or set()
-    if swara_keys or evidence_keys or word_keys:
+    asr_keys = asr_keys or set()
+    if swara_keys or evidence_keys or word_keys or asr_keys:
         st.caption(lex["highlight_caption"])
     else:
         st.caption(lex["no_highlight_caption"])
@@ -600,6 +622,8 @@ def render_highlighted_text(verses: list[Verse], segments: pd.DataFrame, swara_k
                 classes = set()
                 if key in swara_keys:
                     classes.add("bad-akshara")
+                if key in asr_keys:
+                    classes.add("asr-akshara")
                 for word_key in word_keys:
                     parts_key = word_key.split("|", 2)
                     if len(parts_key) == 3 and parts_key[0] == str(verse.shloka) and parts_key[1] == label:
@@ -615,7 +639,7 @@ def render_highlighted_text(verses: list[Verse], segments: pd.DataFrame, swara_k
 
 st.html("""
 <style>
-.block-container{max-width:980px;padding-top:1.4rem}.hero{padding:1rem 1.25rem;border-radius:18px;background:linear-gradient(135deg,#fff7ed,#fff);border:1px solid #fed7aa;margin-bottom:1rem}.hero h1{margin:0;color:#7c2d12;font-size:2rem}.verse{background:#fff;border:1px solid #e5e7eb;border-left:5px solid #dc2626;border-radius:14px;padding:1rem 1.25rem;margin:.75rem 0;box-shadow:0 3px 12px #0000000a}.verse-id{font-size:.82rem;color:#991b1b;font-weight:700}.speaker{text-align:center;font-weight:700;margin:.45rem}.charan{text-align:center;font-family:"Noto Serif Devanagari",serif;font-size:1.35rem;line-height:1.8}.notice{padding:.85rem 1rem;border-radius:12px;background:#eff6ff;border:1px solid #bfdbfe}.no-marks{padding:.8rem 1rem;border-radius:12px;background:#f9fafb;border:1px solid #d1d5db;font-weight:600}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin:.75rem 0 1.1rem}.step{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:.8rem .9rem}.step b{color:#991b1b}.result-card{border-radius:18px;padding:1rem 1.2rem;margin:.8rem 0 1rem;border:1px solid #fde68a;background:#fffbeb}.result-card.ok{border-color:#bbf7d0;background:#f0fdf4}.result-card h2{margin:.15rem 0 .45rem;font-size:1.8rem}.result-kicker{text-transform:uppercase;letter-spacing:.08em;font-size:.75rem;color:#6b7280;font-weight:800}.scope-card{background:#f8fafc;border:1px solid #cbd5e1;border-radius:16px;padding:1rem;margin:.6rem 0 1rem}.scope-card ul{margin:.35rem 0 .8rem 1.2rem}.correction{font-family:"Noto Serif Devanagari",serif}.highlight-line{text-align:center;font-size:1.45rem;line-height:2.1}.bad-akshara{background:#fee2e2;color:#991b1b;border-bottom:3px solid #dc2626;border-radius:6px;padding:0 .08em}.word-akshara{background:#ffedd5;color:#9a3412;border-bottom:3px solid #f97316;border-radius:6px;padding:0 .08em}.aghata-akshara{background:#f3e8ff;color:#6b21a8;border-bottom:3px solid #9333ea;border-radius:6px;padding:0 .08em}.nasal-akshara{background:#dbeafe;color:#1d4ed8;border-bottom:3px solid #2563eb;border-radius:6px;padding:0 .08em}.ok-akshara{padding:0 .04em}@media(max-width:800px){.steps{grid-template-columns:1fr}}
+.block-container{max-width:980px;padding-top:1.4rem}.hero{padding:1rem 1.25rem;border-radius:18px;background:linear-gradient(135deg,#fff7ed,#fff);border:1px solid #fed7aa;margin-bottom:1rem}.hero h1{margin:0;color:#7c2d12;font-size:2rem}.verse{background:#fff;border:1px solid #e5e7eb;border-left:5px solid #dc2626;border-radius:14px;padding:1rem 1.25rem;margin:.75rem 0;box-shadow:0 3px 12px #0000000a}.verse-id{font-size:.82rem;color:#991b1b;font-weight:700}.speaker{text-align:center;font-weight:700;margin:.45rem}.charan{text-align:center;font-family:"Noto Serif Devanagari",serif;font-size:1.35rem;line-height:1.8}.notice{padding:.85rem 1rem;border-radius:12px;background:#eff6ff;border:1px solid #bfdbfe}.no-marks{padding:.8rem 1rem;border-radius:12px;background:#f9fafb;border:1px solid #d1d5db;font-weight:600}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin:.75rem 0 1.1rem}.step{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:.8rem .9rem}.step b{color:#991b1b}.result-card{border-radius:18px;padding:1rem 1.2rem;margin:.8rem 0 1rem;border:1px solid #fde68a;background:#fffbeb}.result-card.ok{border-color:#bbf7d0;background:#f0fdf4}.result-card h2{margin:.15rem 0 .45rem;font-size:1.8rem}.result-kicker{text-transform:uppercase;letter-spacing:.08em;font-size:.75rem;color:#6b7280;font-weight:800}.scope-card{background:#f8fafc;border:1px solid #cbd5e1;border-radius:16px;padding:1rem;margin:.6rem 0 1rem}.scope-card ul{margin:.35rem 0 .8rem 1.2rem}.correction{font-family:"Noto Serif Devanagari",serif}.highlight-line{text-align:center;font-size:1.45rem;line-height:2.1}.bad-akshara{background:#fee2e2;color:#991b1b;border-bottom:3px solid #dc2626;border-radius:6px;padding:0 .08em}.asr-akshara{background:#ffedd5;color:#9a3412;border-bottom:3px solid #f97316;border-radius:6px;padding:0 .08em}.word-akshara{background:#ffedd5;color:#9a3412;border-bottom:3px solid #f97316;border-radius:6px;padding:0 .08em}.aghata-akshara{background:#f3e8ff;color:#6b21a8;border-bottom:3px solid #9333ea;border-radius:6px;padding:0 .08em}.nasal-akshara{background:#dbeafe;color:#1d4ed8;border-bottom:3px solid #2563eb;border-radius:6px;padding:0 .08em}.ok-akshara{padding:0 .04em}@media(max-width:800px){.steps{grid-template-columns:1fr}}
 </style>
 """)
 
@@ -690,6 +714,13 @@ if run and source is not None:
         st.error(lex["quality_fail"] + " " + "; ".join(quality.reasons))
         st.stop()
 
+    with st.spinner(lex["akshara_asr_spinner"]):
+        akshara_match: AksharaMatch = compare_aksharas(student, selected_charans(selected_verses, segments))
+    if akshara_match.available and akshara_match.message == "SELECTION_OR_DECODE_MISMATCH":
+        st.error(lex["wrong_selection_title"])
+        st.warning(lex["akshara_selection_warning"])
+        st.stop()
+
     st.subheader(f"3. {lex['result_section']}")
     selected_seq = tuple(v.shloka for v in selected_verses)
     reference_duration, missing_index, timing_verified = selected_reference_duration(index, selected_verses)
@@ -758,6 +789,7 @@ if run and source is not None:
                 issues_to_keys(swara_issues or []),
                 {},
                 word_highlight_keys(word_issues),
+                akshara_highlight_keys(akshara_match.issues) if akshara_match.available else set(),
             )
             render_pronunciation_scope_note()
             render_understand_correction(repo, index, selected_verses, segments, lex, chapter_context)

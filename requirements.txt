@@ -6,4 +6,4 @@ soundfile>=0.12,<1
 scipy>=1.12,<2
 plotly>=5.24,<7
 rapidfuzz>=3.9,<4
-
+onnx-asr[cpu,hub]>=0.11,<0.12

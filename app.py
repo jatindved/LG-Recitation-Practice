@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import html
 import os
@@ -471,10 +471,6 @@ def render_word_audio_check(student: AudioData, trainer_path: Path, verses: list
     return issues
 
 
-def render_pronunciation_scope_note() -> None:
-    st.info(lex["pronunciation_scope_note"])
-
-
 def collect_pronunciation_evidence(student: AudioData, trainer_path: Path, repo: GeetaRepository, chapter: int, selected_seq: tuple[int, ...], start_sec: float, end_sec: float, segments: pd.DataFrame) -> list[EvidenceIssue]:
     frame = repo._aghata  # official mapped rule data loaded by repository
     with st.spinner("Checking pronunciation at CSV-timed word locations..."):
@@ -791,7 +787,6 @@ if run and source is not None:
                 word_highlight_keys(word_issues),
                 akshara_highlight_keys(akshara_match.issues) if akshara_match.available else set(),
             )
-            render_pronunciation_scope_note()
             render_understand_correction(repo, index, selected_verses, segments, lex, chapter_context)
         except Exception as exc:
             st.info(f"{lex['unable']}: {exc}")

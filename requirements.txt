@@ -1,0 +1,9 @@
+streamlit>=1.42,<2
+pandas>=2.2,<3
+numpy>=1.26,<3
+librosa>=0.11,<1
+soundfile>=0.12,<1
+scipy>=1.12,<2
+plotly>=5.24,<7
+rapidfuzz>=3.9,<4
+
